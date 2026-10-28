@@ -345,6 +345,20 @@ class Job(object):
         os.makedirs(base, exist_ok=True)
         return base
 
+    def _ensure_dir(self, path):
+        try:
+            os.makedirs(path, exist_ok=True)
+            probe = os.path.join(path, ".dbf-yazma-testi")
+            with open(probe, "w", encoding="utf-8") as fh:
+                fh.write("ok")
+            os.remove(probe)
+        except OSError as exc:
+            raise PgError(
+                "Yedek klasorune yazilamiyor: %s\n  %s\n"
+                "Klasor alanini bos birakirsaniz yedekler varsayilan olarak\n"
+                "  %s\n"
+                "altina yazilir." % (path, exc, self._backupdir()))
+
     # -- akislar ----------------------------------------------------------
 
     def _run_file_to_server(self):
@@ -413,7 +427,7 @@ class Job(object):
         self.emit(INFO, "Calisma bicimi: %s" % (
             "docker konteyneri (%s)" % src.pg_container if engine.docker else "dogrudan PostgreSQL"))
         out_dir = (s.local_copy_dir or "").strip() or os.path.join(self._backupdir(), _safe(src_db))
-        os.makedirs(out_dir, exist_ok=True)
+        self._ensure_dir(out_dir)
         self.emit(INFO, "Yedek klasoru: %s" % out_dir)
         self.emit(INFO, "Yerel bos disk: %s" % src_r.free_space(out_dir))
         self._done("envcheck")

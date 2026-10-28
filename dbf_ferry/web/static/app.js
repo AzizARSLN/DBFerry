@@ -661,7 +661,8 @@ function bind() {
   $('btnStart').onclick = doStart;
   $('btnCancel').onclick = doCancel;
   $('btnBrowseFile').onclick = () => openFs('file', 'sourceDump', $('sourceDump').value || '');
-  $('btnBrowseDir').onclick = () => openFs('dir', 'localCopyDir', $('localCopyDir').value || '');
+  $('btnBrowseDir').onclick = () => openFs('dir', 'localCopyDir',
+    $('localCopyDir').value || (state.meta && state.meta.data_dir) || '');
   $('btnLocalConnect').onclick = doLocalConnect;
   $('localPgMode').onchange = syncLocalBlock;
   $('localPassword').oninput = updateRisk;
