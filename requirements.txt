@@ -1,0 +1,3 @@
+# DBFerry bagimliliklari
+# Kurulum:  python -m pip install -r requirements.txt
+paramiko>=3.4

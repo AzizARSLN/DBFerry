@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DBFerry · Veritabanı Taşıma Konsolu</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="aurora"></div>
+
+<header class="topbar glass">
+  <div class="brand">
+    <div class="mark">DB</div>
+    <div class="brand-text">
+      <h1>DBFerry</h1>
+      <span id="tagline">Veritabanlarını sunucular arasında taşı</span>
+    </div>
+  </div>
+  <nav class="tabs" id="jobTabs"></nav>
+  <div class="top-actions">
+    <button class="pill ghost" id="btnProfiles">Profiller <span class="badge" id="profCount">0</span></button>
+    <button class="pill ghost" id="btnHistory">Geçmiş</button>
+    <span class="version" id="version">v-</span>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- SOL: yapılandırma -->
+  <section class="panel glass">
+    <div class="panel-head">
+      <h2>İş Yapılandırması</h2>
+      <span class="hint" id="jobHint"></span>
+    </div>
+
+    <div class="grid">
+      <!-- Kaynak -->
+      <div class="field span2 src-block" id="blockSourceFile">
+        <label>Kaynak döküm dosyası <span class="req">zorunlu</span></label>
+        <div class="row">
+          <input type="text" id="sourceDump" placeholder="C:\\...\\veritabani_yedegi.dump">
+          <button class="pill" id="btnBrowseFile">Gözat</button>
+        </div>
+        <div class="sub" id="dumpInfo">.sha256 yan dosyası varsa otomatik doğrulanır.</div>
+      </div>
+
+      <div class="field src-block" id="blockSourceServer">
+        <label>Kaynak sunucu</label>
+        <select id="sourceProfile"></select>
+      </div>
+      <div class="field src-block" id="blockSourceDb">
+        <label>Kaynak veritabanı</label>
+        <input type="text" id="sourceDb" placeholder="(profil varsayılanı)">
+      </div>
+
+      <!-- Hedef -->
+      <div class="field tgt-block" id="blockTargetProfile">
+        <label id="tgtProfileLabel">Hedef sunucu</label>
+        <select id="targetProfile"></select>
+      </div>
+
+      <!-- Yerel hedef (Dosyadan Yerele): bağlantı bilgileri iş ekranında girilir -->
+      <div class="span2 local-block" id="localBlock">
+        <div class="local-head">
+          <span class="lh-title">Yerel PostgreSQL bağlantısı</span>
+          <span class="lh-sub">Bu bilgisayarda kurulu PostgreSQL — şifreyi girin, veritabanlarını listeleyin</span>
+        </div>
+        <div class="grid">
+          <div class="field"><label>Sunucu / IP</label><input type="text" id="localHost" value="127.0.0.1"></div>
+          <div class="field sm"><label>Port</label><input type="number" id="localPort" value="5432"></div>
+          <div class="field sm"><label>Kullanıcı</label><input type="text" id="localUser" value="postgres"></div>
+          <div class="field sm"><label>Şifre <span class="req">zorunlu</span></label><input type="password" id="localPassword" placeholder="PostgreSQL şifresi"></div>
+          <div class="field sm"><label>Çalışma biçimi</label>
+            <select id="localPgMode">
+              <option value="local">Doğrudan (kurulu PostgreSQL)</option>
+              <option value="docker">Docker konteyneri</option>
+            </select>
+          </div>
+          <div class="field"><label>Konteyner adı <span class="opt">docker ise</span></label><input type="text" id="localPgContainer" placeholder="postgres"></div>
+          <div class="field span2"><label>PostgreSQL bin klasörü <span class="opt">boşsa otomatik bulunur</span></label>
+            <input type="text" id="localPgBin" placeholder="C:\\Program Files\\PostgreSQL\\17\\bin">
+          </div>
+          <div class="field span2">
+            <label id="localDbLabel">Yereldeki veritabanları</label>
+            <div class="row">
+              <select id="localDbSel"><option value="">(bağlanıp listeleyin)</option></select>
+              <button class="pill" id="btnLocalConnect">Bağlan ve Listele</button>
+            </div>
+            <div class="sub" id="localInfo">Şifreyi girip “Bağlan ve Listele”ye basın.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Yerelden Dosyaya: yedek kayıt klasörü -->
+      <div class="field span2" id="localOutBlock">
+        <label>Yedek kayıt klasörü <span class="opt">boşsa data\backups\&lt;veritabanı&gt;</span></label>
+        <div class="row">
+          <input type="text" id="localCopyDir" placeholder="(varsayılan: DBFerry\data\backups)">
+          <button class="pill" id="btnBrowseDir">Gözat</button>
+        </div>
+        <div class="sub">Yedek dosyası ve <b>.sha256</b> yan dosyası bu klasöre yazılır.</div>
+      </div>
+
+      <div class="field tgt-block">
+        <label id="tgtDbLabel">Hedef veritabanı</label>
+        <input type="text" id="targetDb" placeholder="(profil varsayılanı)">
+      </div>
+
+      <div class="field span2 tgt-block">
+        <label>Geri yükleme biçimi</label>
+        <div class="seg" id="modeSeg"></div>
+      </div>
+
+      <div class="field span2 newdb-block" id="blockNewDb">
+        <label>Yeni veritabanı adı</label>
+        <input type="text" id="newDbName" placeholder="appdb_kopya">
+      </div>
+
+      <!-- Doğrulama -->
+      <div class="field span2 tgt-block">
+        <label>Beklenen migration sürümü <span class="opt">isteğe bağlı</span></label>
+        <input type="text" id="expectMigration" placeholder="V068">
+      </div>
+      <div class="field span2 tgt-block">
+        <label>Özel doğrulama sorguları <span class="opt">SQL | beklenen</span></label>
+        <textarea id="verifyQueries" rows="3" placeholder="select count(*) from public.orders | 1000"></textarea>
+      </div>
+    </div>
+
+    <div class="options" id="optionsBox">
+      <label class="chk"><input type="checkbox" id="optSafety" checked><span>Güvenlik yedeği al</span></label>
+      <label class="chk"><input type="checkbox" id="optStop" checked><span id="lblOptStop">Hedef servisleri durdur</span></label>
+      <label class="chk"><input type="checkbox" id="optStart" checked><span id="lblOptStart">İş sonrası servisleri başlat</span></label>
+      <label class="chk"><input type="checkbox" id="optStopSrc"><span>Kaynak servisleri de durdur</span></label>
+      <label class="chk"><input type="checkbox" id="optVerify" checked><span>Doğrulama yap</span></label>
+      <label class="chk"><input type="checkbox" id="optKeepLocal"><span>Kaynak yedeğini yerelde sakla</span></label>
+    </div>
+
+    <div class="actionbar">
+      <button class="pill" id="btnPlan">Planı Göster</button>
+      <button class="pill" id="btnInspect">Ortamı Denetle</button>
+      <button class="pill primary" id="btnStart">Süreci Başlat</button>
+      <button class="pill danger" id="btnCancel" disabled>Durdur</button>
+    </div>
+  </section>
+
+  <!-- SAĞ: konsol -->
+  <section class="panel console-panel glass">
+    <div class="console-head">
+      <div class="dots"><i class="d1"></i><i class="d2"></i><i class="d3"></i></div>
+      <span class="console-title" id="consoleTitle">dbf — hazır</span>
+      <div class="console-tools">
+        <span class="status-dot" id="statusDot"></span>
+        <button class="mini" id="btnScroll" title="Otomatik kaydırma">⇩</button>
+        <button class="mini" id="btnClear" title="Konsolu temizle">⌫</button>
+        <button class="mini" id="btnSaveLog" title="Logu indir">⤓</button>
+      </div>
+    </div>
+
+    <div class="progress"><div class="bar" id="progBar"></div></div>
+
+    <div class="console" id="console"></div>
+
+    <div class="plan-strip" id="planStrip"></div>
+  </section>
+
+</main>
+
+<!-- Sunucu yöneticisi -->
+<div class="drawer-wrap" id="profilesDrawer">
+  <div class="drawer-backdrop" data-close></div>
+  <aside class="drawer glass">
+    <div class="drawer-head">
+      <h2>Profiller</h2>
+      <button class="mini" data-close>✕</button>
+    </div>
+    <div class="drawer-list" id="profileList"></div>
+    <div class="drawer-foot">
+      <button class="pill primary" id="btnNewProfile">+ Yeni Profil</button>
+    </div>
+  </aside>
+</div>
+
+<!-- Profil düzenleyici -->
+<div class="modal-wrap" id="profileModal">
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal glass">
+    <div class="modal-head">
+      <h2 id="profileModalTitle">Profil Ekle</h2>
+      <button class="mini" data-close>✕</button>
+    </div>
+    <div class="modal-body grid">
+      <div class="field"><label>Ad</label><input type="text" id="p_name" placeholder="Üretim PostgreSQL"></div>
+      <div class="field"><label>Konum</label>
+        <select id="p_location">
+          <option value="remote">Uzak sunucu (SSH)</option>
+          <option value="local">Bu bilgisayar (yerel)</option>
+        </select>
+      </div>
+
+      <div class="grid span2" id="sshFields">
+        <div class="field"><label>Sunucu / IP</label><input type="text" id="p_host" placeholder="192.0.2.10"></div>
+        <div class="field sm"><label>SSH portu</label><input type="number" id="p_port" value="22"></div>
+        <div class="field sm"><label>Kullanıcı</label><input type="text" id="p_user" value="root"></div>
+        <div class="field"><label>Şifre</label><input type="password" id="p_password" placeholder="(değiştirmek istemiyorsanız boş bırakın)"></div>
+        <div class="field span2"><label>Host key <span class="opt">SHA256:…</span></label>
+          <div class="row">
+            <input type="text" id="p_hostkey" placeholder="SHA256:...">
+            <button class="pill" id="btnGetKey">Anahtarı Getir</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sep span2"><span>PostgreSQL</span></div>
+
+      <div class="field sm"><label>Çalışma biçimi</label>
+        <select id="p_pg_mode">
+          <option value="docker">Docker konteyneri</option>
+          <option value="local">Doğrudan (host)</option>
+        </select>
+      </div>
+      <div class="field"><label>Konteyner adı</label><input type="text" id="p_pg_container" placeholder="app-postgres"></div>
+      <div class="field span2 hidden" id="pgBinField">
+        <label>PostgreSQL bin klasörü <span class="opt">yerel; boşsa otomatik bulunur</span></label>
+        <input type="text" id="p_pg_bin" placeholder="C:\\Program Files\\PostgreSQL\\17\\bin">
+      </div>
+      <div class="field sm"><label>DB adı</label><input type="text" id="p_db_name" placeholder="appdb"></div>
+      <div class="field sm"><label>DB kullanıcısı</label><input type="text" id="p_db_user" placeholder="postgres"></div>
+      <div class="field sm"><label>DB şifresi</label><input type="password" id="p_db_password" placeholder="(opsiyonel)"></div>
+      <div class="field sm"><label>Şema</label><input type="text" id="p_db_schema" placeholder="public"></div>
+      <div class="field sm"><label>DB sunucu</label><input type="text" id="p_db_host" placeholder="127.0.0.1"></div>
+      <div class="field sm"><label>DB portu</label><input type="number" id="p_db_port" value="5432"></div>
+
+      <div class="field span2"><label>Durdurulacak servisler <span class="opt">virgülle</span></label>
+        <input type="text" id="p_stop_containers" placeholder="app-worker, app-api, app-watchtower"></div>
+      <div class="field span2"><label>Başlatılacak servisler <span class="opt">virgülle</span></label>
+        <input type="text" id="p_start_containers" placeholder="app-api"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="pill danger ghost" id="btnDeleteProfile">Sil</button>
+      <div class="spacer"></div>
+      <button class="pill" data-close>Vazgeç</button>
+      <button class="pill primary" id="btnSaveProfile">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- Yerel dosya seçici -->
+<div class="modal-wrap" id="fileModal">
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal glass small">
+    <div class="modal-head">
+      <h2 id="fsTitle">Döküm Dosyası Seç</h2>
+      <button class="mini" data-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="pathbar"><input type="text" id="fsPath"><button class="pill" id="btnFsGo">Git</button></div>
+      <div class="fs-list" id="fsList"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="hint" id="fsHint"></span>
+      <div class="spacer"></div>
+      <button class="pill primary" id="btnFsPick">Bu dosyayı seç</button>
+      <button class="pill primary" id="btnFsPickDir">Bu klasörü seç</button>
+    </div>
+  </div>
+</div>
+
+<!-- Geçmiş -->
+<div class="drawer-wrap" id="historyDrawer">
+  <div class="drawer-backdrop" data-close></div>
+  <aside class="drawer glass">
+    <div class="drawer-head">
+      <h2>İş Geçmişi</h2>
+      <button class="mini" data-close>✕</button>
+    </div>
+    <div class="drawer-list" id="historyList"></div>
+  </aside>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
