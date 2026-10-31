@@ -1,0 +1,25 @@
+.git
+.gitignore
+.github
+
+# Calisma zamani verisi: profiller (sifre icerir), gecmis ve yedekler
+data/
+*.dump
+*.backup
+*.sha256
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Editor
+.vscode/
+.idea/

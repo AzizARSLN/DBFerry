@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbferry"
+description = "Self-hosted PostgreSQL migration and backup tool with a web console and an MCP server for AI agents"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Aziz ARSLAN" }]
+keywords = [
+  "postgresql", "database-migration", "database-backup", "pg-dump",
+  "pg-restore", "mcp", "mcp-server", "ai-agents", "docker", "devops",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: System Administrators",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Database",
+  "Topic :: System :: Systems Administration",
+]
+dependencies = [
+  "paramiko>=3.4",
+  "mcp>=2.3,<3",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/AzizARSLN/DBFerry"
+Repository = "https://github.com/AzizARSLN/DBFerry"
+Issues = "https://github.com/AzizARSLN/DBFerry/issues"
+
+[project.scripts]
+dbf = "dbf:main"
+dbferry-mcp = "dbf_ferry.mcp.server:main"
+
+[tool.setuptools]
+py-modules = ["dbf"]
+packages = ["dbf_ferry", "dbf_ferry.web", "dbf_ferry.mcp"]
+
+[tool.setuptools.package-data]
+"dbf_ferry.web" = ["static/*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "dbf_ferry.__version__" }
