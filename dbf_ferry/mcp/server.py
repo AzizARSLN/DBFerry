@@ -31,9 +31,6 @@ from ..model import JobSpec, VerifyCheck
 from ..pg import PgDocker, verify_checks
 from ..store import Store
 
-PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DEFAULT_DATA_DIR = os.path.join(PROJECT_DIR, "data")
-
 # Bu adimlar veriyi geri donusu olmayacak sekilde degistirir
 DESTRUCTIVE_STEPS = ("drop", "restore")
 MAX_LOG_LINES = 200
@@ -73,7 +70,12 @@ _JOBS = {}
 # ---------------------------------------------------------------------------
 
 def _data_dir():
-    return os.path.abspath(os.environ.get("DBFERRY_DATA_DIR") or DEFAULT_DATA_DIR)
+    """Veri klasoru: DBFERRY_DATA_DIR tanimliysa o, degilse calisma dizinindeki 'data'.
+
+    Calisma dizinine gore cozulur; boylece pip/uvx ile kurulmus bir paket
+    site-packages icine yazmaya calismaz.
+    """
+    return os.path.abspath(os.environ.get("DBFERRY_DATA_DIR") or os.path.join(os.getcwd(), "data"))
 
 
 def _store():
