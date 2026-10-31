@@ -5,6 +5,8 @@
 Kullanim:
     python dbf.py web                      # Yapilandirma ekranini ac (onerilen)
     python dbf.py web --port 9000 --no-browser
+    python dbf.py mcp                      # MCP sunucusunu baslat (ajanlar icin)
+    python dbf.py mcp --transport streamable-http --port 8765
     python dbf.py run --spec is.json       # Isi konsoldan calistir
     python dbf.py run --spec is.json --yes
     python dbf.py inspect --spec is.json   # Salt okunur ortam denetimi
@@ -40,6 +42,12 @@ def cmd_web(args):
         port = free_port(8787)
     return serve(host=args.host, port=port, data_dir=data_dir(args),
                  open_browser=not args.no_browser)
+
+
+def cmd_mcp(args):
+    from dbf_ferry.mcp.server import main as mcp_main
+    mcp_main(transport=args.transport, host=args.host, port=args.port)
+    return 0
 
 
 def load_spec(path):
@@ -145,6 +153,13 @@ def main():
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--no-browser", action="store_true")
     p_web.set_defaults(func=cmd_web)
+
+    p_mcp = sub.add_parser("mcp", help="MCP sunucusunu baslat (ajanlar icin)")
+    p_mcp.add_argument("--transport", default="stdio",
+                       choices=("stdio", "sse", "streamable-http"))
+    p_mcp.add_argument("--host", default="127.0.0.1")
+    p_mcp.add_argument("--port", type=int, default=8765)
+    p_mcp.set_defaults(func=cmd_mcp)
 
     p_run = sub.add_parser("run", help="Isi calistir")
     p_run.add_argument("--spec", required=True, help="Is tanimi JSON dosyasi")
