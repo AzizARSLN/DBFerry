@@ -22,7 +22,7 @@ def _stamp():
     return time.strftime("%Y%m%dT%H%M%S")
 
 
-def _make_remote(profile, log, should_stop):
+def make_remote(profile, log, should_stop):
     """Profile gore SSH oturumu ya da yerel komut yurutucusu dondurur."""
     if profile.is_local():
         return LocalRemote(profile, log=log, should_stop=should_stop)
@@ -193,7 +193,7 @@ class Job(object):
                 if not prof:
                     continue
                 self.emit(STAGE, "%s: %s" % (label, prof.name))
-                r = _make_remote(prof, log=self.emit, should_stop=self.cancelled)
+                r = make_remote(prof, log=self.emit, should_stop=self.cancelled)
                 r.connect()
                 self._remotes.append(r)
                 engine = PgDocker(r, prof, self.emit)
@@ -330,7 +330,7 @@ class Job(object):
             raise ValueError("%s icin sunucu profili bulunamadi (id=%s)" % (role, profile_id))
         if not p.is_local() and not p.host:
             raise ValueError("%s profili icin sunucu adresi bos" % role)
-        r = _make_remote(p, log=self.emit, should_stop=self.cancelled)
+        r = make_remote(p, log=self.emit, should_stop=self.cancelled)
         r.connect()
         self._remotes.append(r)
         return p, r
