@@ -1,11 +1,12 @@
 # DBFerry
 
-[![Python](https://img.shields.io/badge/python-3.8%2B-3776AB?logo=python&logoColor=white)](#)
-[![Dependencies](https://img.shields.io/badge/runtime-paramiko-blue)](#)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](#)
+[![MCP](https://img.shields.io/badge/MCP-server-6E56CF)](#ai-agents-mcp)
+[![Dependencies](https://img.shields.io/badge/runtime-paramiko%20%7C%20mcp-blue)](#)
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-lightgrey)](#)
 [![Console](https://img.shields.io/badge/web%20console-127.0.0.1%3A8787-informational)](#)
 
-**Self-hosted PostgreSQL migration and backup tool with a local web console.**
+**Self-hosted PostgreSQL migration and backup tool with a local web console and an MCP server.**
 
 DBFerry moves a PostgreSQL database from one place to another without hand-writing
 `pg_dump` / `pg_restore` chains. It takes care of the parts that usually go wrong:
@@ -56,6 +57,9 @@ depending on the chosen restore mode.
   `SQL | expected` checks are validated after the restore.
 - **Profiles and history.** Hosts are stored once and reused; every run is appended to a
   local history file with its status and duration.
+- **MCP server.** The same engine is exposed to AI agents as a Model Context Protocol
+  server: dry-run by default, destructive calls gated behind a confirmation token, and an
+  optional read-only mode that removes restore entirely.
 
 ## How it works
 
@@ -75,8 +79,8 @@ A read-only backup stops at the checksum step and writes the file to disk.
 
 ## Requirements
 
-- Python 3.8 or newer
-- [`paramiko`](https://www.paramiko.org/) (the only third-party dependency)
+- Python 3.10 or newer (the MCP server SDK requires it)
+- [`paramiko`](https://www.paramiko.org/) for SSH, and [`mcp`](https://pypi.org/project/mcp/) for the AI-agent server
 - PostgreSQL client tools — `pg_dump`, `pg_restore`, `psql`, `sha256sum`
   - in Docker mode they are expected to exist inside the container
   - in direct mode they must be reachable on `PATH` (or pointed to with the profile's
@@ -91,6 +95,14 @@ A read-only backup stops at the checksum step and writes the file to disk.
 git clone https://github.com/AzizARSLN/DBFerry.git
 cd DBFerry
 python -m pip install -r requirements.txt
+```
+
+The repository is also a standard Python package, so it can be installed into its own
+environment with the `dbf` and `dbferry-mcp` entry points:
+
+```bash
+pipx install .          # or:  uv tool install .
+dbf web
 ```
 
 ## Usage
@@ -118,6 +130,19 @@ python dbf.py inspect --spec job.json        # read-only environment check
 python dbf.py profiles                       # list saved hosts
 python dbf.py history --limit 20             # recent runs
 ```
+
+### Docker
+
+```bash
+docker build -t dbferry .
+docker run --rm -i -v "$PWD/data:/data" dbferry                     # MCP server over stdio
+docker run --rm -p 8787:8787 -v "$PWD/data:/data" dbferry \
+  web --host 0.0.0.0 --no-browser                                   # web console
+```
+
+The image keeps its state in the `/data` volume (`DBFERRY_DATA_DIR=/data`), so profiles and
+backups survive between runs. `pg_dump` / `pg_restore` still have to exist on the machine
+that owns the database — the container drives them over SSH or the local shell.
 
 ### Example job spec
 
@@ -157,12 +182,97 @@ And a restore onto a remote server:
 `target_profile` is the `id` of a saved profile (see `python dbf.py profiles`). Leave
 `local_copy_dir` empty to write backups under `data/backups/<database>/`.
 
+## AI agents (MCP)
+
+DBFerry also runs as a [Model Context Protocol](https://modelcontextprotocol.io) server, so
+an assistant such as Claude Code, Cursor or Codex can back up, transfer and verify
+databases through the same plan → approve → run → verify pipeline the console uses.
+
+```bash
+python dbf.py mcp                                     # stdio (default, for local agents)
+python dbf.py mcp --transport streamable-http --port 8765
+python dbf.py mcp --transport sse --port 8765
+```
+
+The server speaks the same `data/` directory as the CLI: profiles are read from
+`data/profiles.json` and job history is appended to `data/history.jsonl`.
+
+### Registering the server
+
+The server is started by the client, so a full clone is not required — point the client at
+the `mcp` subcommand. Claude Desktop / Claude Code (`claude_desktop_config.json` or
+`.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "dbferry": {
+      "command": "python",
+      "args": ["dbf.py", "mcp"],
+      "cwd": "/absolute/path/to/DBFerry",
+      "env": { "DBFERRY_DATA_DIR": "/absolute/path/to/DBFerry/data" }
+    }
+  }
+}
+```
+
+Any `command` that runs `python dbf.py mcp` works; the `cwd` (or `DBFERRY_DATA_DIR`) is what
+tells the server which profiles to load.
+
+### Tools
+
+| Tool | Kind | Purpose |
+| --- | --- | --- |
+| `db_profiles` | read | List configured profiles (never returns passwords) |
+| `db_inspect` | read | Environment check: databases, size, table count, migration version, disk |
+| `db_plan` | read | Step list and risk flags for a `backup` or `restore` operation |
+| `db_backup` | read | Dump a database to a local `.dump` + `.sha256` |
+| `db_restore` | **destructive** | Restore a dump into a target; gated by dry-run and a confirmation token |
+| `db_verify` | read | Prove the result: existence, size, tables, migration version, SQL checks |
+| `db_job_status` | read | Progress and recent log lines for running and finished jobs |
+
+### Safety model
+
+The server is built so an agent cannot destroy a database by accident:
+
+- **Dry run is the default.** `db_restore` returns the step list and executes nothing until
+  it is called with `dry_run=false`.
+- **Destructive steps need a token.** With `mode="replace"` the call is rejected unless
+  `confirm` equals the target database name — the agent has to echo the exact name of the
+  database it is about to drop.
+- **Read-only lockdown.** Setting `DBFERRY_READONLY=1` removes `db_restore` from the server
+  entirely, leaving only backup and verification tools.
+- **No credentials in arguments.** Connection details come from the locally stored profile;
+  passwords are never tool parameters and never returned in tool results.
+- **Safety backup first.** Every restore dumps the current database to
+  `data/backups/<name>/` before touching it.
+- **Verified transfers.** Dumps are SHA-256 checksummed on write and checked on read.
+
+### Environment
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `DBFERRY_DATA_DIR` | `./data` | Where profiles, history and backups live |
+| `DBFERRY_READONLY` | unset | `1` disables every data-changing tool |
+| `DBFERRY_PG_BIN` | unset | PostgreSQL `bin` directory for direct (non-Docker) targets |
+| `DBFERRY_BASH` | auto | `bash.exe` used for local jobs on Windows |
+
+### Relation to `postgres-mcp`
+
+The official PostgreSQL MCP servers expose a SQL connection: they run queries and let the
+model reason about a schema. DBFerry's server exposes **operations**: it plans, performs and
+verifies a database migration end to end, and it is deliberately unable to serve ad-hoc SQL.
+Reach for a SQL-oriented server to inspect data; reach for DBFerry to move a database and
+prove the move succeeded.
+
 ## Project layout
 
 ```
 DBFerry/
-├── dbf.py                 # CLI entry point (web, run, inspect, profiles, history)
+├── dbf.py                 # CLI entry point (web, mcp, run, inspect, profiles, history)
+├── pyproject.toml         # packaging metadata and console entry points
 ├── requirements.txt
+├── Dockerfile             # container image for the web console and MCP server
 └── dbf_ferry/
     ├── model.py           # ServerProfile, JobSpec, job/restore mode definitions
     ├── store.py           # profiles.json + history.jsonl
@@ -171,6 +281,8 @@ DBFerry/
     ├── localx.py          # local machine layer (drives Git Bash, mirrors the SSH API)
     ├── pg.py              # PostgreSQL operations: dump, restore, verify, docker exec
     ├── jobs.py            # orchestration: plan, run, step tracking, reporting
+    ├── mcp/
+    │   └── server.py      # MCP server: 7 tools over stdio / SSE / streamable HTTP
     └── web/
         ├── app.py         # stdlib HTTP server + JSON/SSE API
         └── static/        # console UI (index.html, app.js, style.css)
@@ -205,6 +317,8 @@ The web console is a thin client over a small JSON API. It is useful for scripti
   expose it to a network you do not control.
 - In `replace` mode a restore drops the target database before recreating it. Leave
   `take_safety_backup` enabled unless you have your own copy.
+- The MCP server inherits these rules. `db_restore` is dry-run by default, requires
+  `confirm=<database>` for `replace`, and disappears entirely when `DBFERRY_READONLY=1`.
 
 ## Notes and limitations
 
@@ -214,13 +328,15 @@ The web console is a thin client over a small JSON API. It is useful for scripti
 - `schema_migrations` verification is skipped (with a warning) when the table does not
   exist in the configured schema.
 - Local jobs on Windows need Git Bash; on Linux and macOS the system shell is used.
-- Environment overrides: `DBFERRY_BASH`, `DBFERRY_PG_BIN`.
+- Environment overrides: `DBFERRY_DATA_DIR`, `DBFERRY_READONLY`, `DBFERRY_PG_BIN`,
+  `DBFERRY_BASH`.
 
 ---
 
 ## Türkçe
 
-**Yerel web konsolu olan, kendi sunucunuzda çalışan PostgreSQL taşıma ve yedekleme aracı.**
+**Yerel web konsolu ve MCP sunucusu olan, kendi sunucunuzda çalışan PostgreSQL taşıma ve
+yedekleme aracı.**
 
 DBFerry, bir PostgreSQL veritabanını elle `pg_dump` / `pg_restore` zinciri yazmadan
 başka bir ortama taşır. Genelde sorun çıkaran işleri üstlenir: servisleri doğru sırayla
@@ -252,7 +368,7 @@ cd DBFerry
 python -m pip install -r requirements.txt
 ```
 
-Gereksinimler: Python 3.8+, `paramiko` ve PostgreSQL istemci araçları (`pg_dump`,
+Gereksinimler: Python 3.10+, `paramiko`, `mcp` ve PostgreSQL istemci araçları (`pg_dump`,
 `pg_restore`, `psql`). Windows'ta yerel işlemler için Git for Windows (Git Bash) gerekir.
 
 ### Kullanım
@@ -263,7 +379,20 @@ python dbf.py run --spec job.json      # planı göster, onay iste, çalıştır
 python dbf.py inspect --spec job.json  # salt okunur ortam denetimi
 python dbf.py profiles                 # kayıtlı sunucular
 python dbf.py history                  # iş geçmişi
+python dbf.py mcp                      # MCP sunucusu (stdio) — Claude, Cursor, Codex
 ```
+
+### Yapay zeka ajanları (MCP)
+
+DBFerry aynı motoru bir [Model Context Protocol](https://modelcontextprotocol.io) sunucusu
+olarak da açar; ajanlar yedekleme, taşıma ve doğrulama işlerini plan → onay → çalıştır →
+doğrula akışıyla yürütür. Sunulan araçlar: `db_profiles`, `db_inspect`, `db_plan`,
+`db_backup` (salt okunur), `db_restore` (yıkıcı), `db_verify`, `db_job_status`.
+
+Güvenlik: `db_restore` varsayılan olarak yalnızca plan döndürür (`dry_run=false` gerekir),
+`replace` modunda hedef veritabanı adının birebir onay belirteci olarak verilmesini ister,
+`DBFERRY_READONLY=1` ayarlandığında sunucudan tamamen kaldırılır. Şifreler araç argümanı
+olarak alınmaz; bağlantı bilgileri yerel profillerden okunur.
 
 ### Notlar
 
